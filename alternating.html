@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>左右交互オフセット弾 シミュレーション</title>
+<style>
+body{margin:0;overflow:hidden;background:#111;font-family:monospace}
+canvas{display:block}
+#info{position:absolute;top:10px;left:10px;color:#fff;font-size:14px;line-height:1.6;background:rgba(0,0,0,0.7);padding:10px;border-radius:6px}
+#info h3{margin:0 0 6px 0;color:#ffaa00}
+#legend{position:absolute;top:10px;right:10px;color:#fff;font-size:13px;background:rgba(0,0,0,0.7);padding:10px;border-radius:6px;line-height:1.8}
+#error{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ff4444;font-size:18px;display:none;text-align:center}
+</style>
+</head>
+<body>
+<div id="info">
+  <h3>🎯 左右交互オフセット弾</h3>
+  <div>敵がプレイヤー方向を基準に左右交互にオフセットをかけて発射</div>
+  <div>→ プレイヤーは右回避・左回避を交互に強制される</div>
+  <div style="margin-top:8px;color:#888">
+    [ WASD ] 移動 &nbsp; [ Space ] ジャンプ &nbsp; [ R ] リセット &nbsp; [ P ] 一時停止<br>
+    [ 1-3 ] オフセット量切替 &nbsp; マウスドラッグ: カメラ回転
+  </div>
+</div>
+<div id="legend">
+  <div>🔴 <b>Enemy</b> (発射元)</div>
+  <div>🔵 <b>Player</b> (ターゲット)</div>
+  <div>🟠 <b>弾</b> (左右交互オフセット)</div>
+  <div style="color:#ff6600">━ 右オフセット軌跡</div>
+  <div style="color:#66aaff">━ 左オフセット軌跡</div>
+  <div style="margin-top:6px;color:#888" id="offsetLabel">オフセット量: 中 (5.0)</div>
+</div>
+<div id="error">Three.js の読み込みに失敗しました。<br>インターネット接続を確認してリロードしてください。</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(0, 18, -22);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x111111);
+document.body.appendChild(renderer.domElement);
+
+const orbitCtrl = new OrbitControls(camera, renderer.domElement);
+orbitCtrl.target.set(0, 0, 5);
+orbitCtrl.update();
+
+// lighting
+scene.add(new THREE.AmbientLight(0x444444));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+dirLight.position.set(5, 10, -5);
+scene.add(dirLight);
+
+// ground grid
+const grid = new THREE.GridHelper(40, 20, 0x333333, 0x222222);
+scene.add(grid);
+
+// danger zone
+const dangerGeo = new THREE.PlaneGeometry(14, 30);
+const dangerMat = new THREE.MeshBasicMaterial({color:0xff0000, transparent:true, opacity:0.03, side:THREE.DoubleSide});
+const dangerPlane = new THREE.Mesh(dangerGeo, dangerMat);
+dangerPlane.rotation.x = -Math.PI/2;
+dangerPlane.position.set(0, 0.01, 7.5);
+scene.add(dangerPlane);
+
+// enemy
+const enemyGeo = new THREE.BoxGeometry(2, 2.5, 1.5);
+const enemyMat = new THREE.MeshPhongMaterial({color:0xff3333, emissive:0x441111});
+const enemy = new THREE.Mesh(enemyGeo, enemyMat);
+enemy.position.set(0, 1.25, 18);
+scene.add(enemy);
+
+// enemy label
+function makeLabel(text, color) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 32;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = color; ctx.font = 'bold 20px monospace';
+  ctx.textAlign = 'center'; ctx.fillText(text, 64, 22);
+  const tex = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex}));
+  s.scale.set(3, 0.8, 1);
+  return s;
+}
+const enemyLabel = makeLabel('ENEMY', '#ff3333');
+enemyLabel.position.set(0, 3.5, 18);
+scene.add(enemyLabel);
+
+// player
+const playerGeo = new THREE.CylinderGeometry(0.5, 0.5, 1.8, 12);
+const playerMat = new THREE.MeshPhongMaterial({color:0x3388ff, emissive:0x112244});
+const player = new THREE.Mesh(playerGeo, playerMat);
+player.position.set(0, 1.1, 0);
+scene.add(player);
+
+const playerLabel = makeLabel('PLAYER', '#3388ff');
+scene.add(playerLabel);
+
+// target markers
+const markerL = new THREE.Mesh(
+  new THREE.RingGeometry(0.3, 0.5, 16),
+  new THREE.MeshBasicMaterial({color:0x66aaff, side:THREE.DoubleSide, transparent:true, opacity:0.5})
+);
+markerL.rotation.x = -Math.PI/2; markerL.position.y = 0.05;
+scene.add(markerL);
+
+const markerR = new THREE.Mesh(
+  new THREE.RingGeometry(0.3, 0.5, 16),
+  new THREE.MeshBasicMaterial({color:0xff6600, side:THREE.DoubleSide, transparent:true, opacity:0.5})
+);
+markerR.rotation.x = -Math.PI/2; markerR.position.y = 0.05;
+scene.add(markerR);
+
+// state
+let bullets = [];
+let paused = false;
+let isJumping = false;
+let jumpVelocity = 0;
+let fireTimer = 0;
+let shotIndex = 0;
+let offsetAmount = 5.0;
+const FIRE_INTERVAL = 0.7;
+const BULLET_SPEED = 10;
+
+const keys = {};
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if(e.code === 'KeyP'){paused = !paused;}
+  if(e.code === 'KeyR') reset();
+  if(e.code === 'Digit1'){ offsetAmount = 3.0; updateOffsetLabel(); }
+  if(e.code === 'Digit2'){ offsetAmount = 5.0; updateOffsetLabel(); }
+  if(e.code === 'Digit3'){ offsetAmount = 8.0; updateOffsetLabel(); }
+});
+addEventListener('keyup', e => keys[e.code] = false);
+
+function updateOffsetLabel(){
+  const label = offsetAmount <= 3 ? '小' : offsetAmount <= 5 ? '中' : '大';
+  document.getElementById('offsetLabel').textContent = `オフセット量: ${label} (${offsetAmount.toFixed(1)})`;
+}
+
+function reset(){
+  bullets.forEach(b => { scene.remove(b.mesh); scene.remove(b.trail); });
+  bullets = [];
+  shotIndex = 0;
+  fireTimer = 0;
+  player.position.set(0, 1.1, 0);
+}
+
+function fireBullet(){
+  const toPlayer = new THREE.Vector3().subVectors(player.position, enemy.position);
+  toPlayer.y = 0;
+  toPlayer.normalize();
+
+  const up = new THREE.Vector3(0, 1, 0);
+  const right = new THREE.Vector3().crossVectors(toPlayer, up).normalize();
+
+  const side = (shotIndex % 2 === 0) ? 1 : -1;
+  const offset = right.clone().multiplyScalar(side * offsetAmount);
+  const targetPos = player.position.clone().add(offset);
+  targetPos.y = 1;
+
+  const bulletDir = new THREE.Vector3().subVectors(targetPos, enemy.position).normalize();
+
+  const geo = new THREE.SphereGeometry(0.3, 12, 12);
+  const color = side > 0 ? 0xff6600 : 0x66aaff;
+  const mat = new THREE.MeshPhongMaterial({color, emissive: side > 0 ? 0x662200 : 0x223366});
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(enemy.position);
+  mesh.position.y = 1;
+  scene.add(mesh);
+
+  const trailGeo = new THREE.BufferGeometry();
+  const positions = new Float32Array(600);
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  trailGeo.setDrawRange(0, 0);
+  const trailMat = new THREE.LineBasicMaterial({color, transparent:true, opacity:0.5});
+  const trail = new THREE.Line(trailGeo, trailMat);
+  scene.add(trail);
+
+  bullets.push({mesh, trail, dir:bulletDir, trailPts:[enemy.position.clone().setY(1)], age:0, side});
+  shotIndex++;
+}
+
+let lastTime = performance.now();
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  if(paused){ renderer.render(scene, camera); return; }
+
+  // player movement (WASD)
+  const pSpeed = 7 * dt;
+  if(keys['KeyA']) player.position.x += pSpeed;
+  if(keys['KeyD']) player.position.x -= pSpeed;
+  if(keys['KeyW']) player.position.z += pSpeed;
+  if(keys['KeyS']) player.position.z -= pSpeed;
+  player.position.x = Math.max(-12, Math.min(12, player.position.x));
+  player.position.z = Math.max(-5, Math.min(16, player.position.z));
+
+  // jump (Space)
+  if(keys['Space'] && !isJumping){
+    isJumping = true;
+    jumpVelocity = 8;
+    keys['Space'] = false; // 押しっぱなし防止
+  }
+  if(isJumping){
+    player.position.y += jumpVelocity * dt;
+    jumpVelocity -= 20 * dt;
+    if(player.position.y <= 1.1){
+      player.position.y = 1.1;
+      isJumping = false;
+      jumpVelocity = 0;
+    }
+  }
+
+  playerLabel.position.set(player.position.x, 3, player.position.z);
+
+  // target markers
+  const toP = new THREE.Vector3().subVectors(player.position, enemy.position);
+  toP.y = 0; toP.normalize();
+  const upV = new THREE.Vector3(0,1,0);
+  const rightV = new THREE.Vector3().crossVectors(toP, upV).normalize();
+  markerR.position.set(player.position.x + rightV.x * offsetAmount, 0.05, player.position.z + rightV.z * offsetAmount);
+  markerL.position.set(player.position.x - rightV.x * offsetAmount, 0.05, player.position.z - rightV.z * offsetAmount);
+
+  // fire
+  fireTimer += dt;
+  if(fireTimer >= FIRE_INTERVAL){
+    fireTimer = 0;
+    fireBullet();
+  }
+
+  // update bullets
+  for(let i = bullets.length - 1; i >= 0; i--){
+    const b = bullets[i];
+    b.age += dt;
+    b.mesh.position.addScaledVector(b.dir, BULLET_SPEED * dt);
+
+    const s = 1 + Math.sin(b.age * 15) * 0.15;
+    b.mesh.scale.setScalar(s);
+
+    b.trailPts.push(b.mesh.position.clone());
+    if(b.trailPts.length > 100) b.trailPts.shift();
+    const posArr = b.trail.geometry.attributes.position.array;
+    for(let j = 0; j < b.trailPts.length; j++){
+      posArr[j*3]   = b.trailPts[j].x;
+      posArr[j*3+1] = b.trailPts[j].y;
+      posArr[j*3+2] = b.trailPts[j].z;
+    }
+    b.trail.geometry.attributes.position.needsUpdate = true;
+    b.trail.geometry.setDrawRange(0, b.trailPts.length);
+
+    if(b.mesh.position.z < -15 || b.age > 5){
+      scene.remove(b.mesh);
+      scene.remove(b.trail);
+      bullets.splice(i, 1);
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
