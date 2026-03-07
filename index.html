@@ -1,36 +1,847 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
 <meta charset="utf-8">
-<title>Projectile Simulator — 弾道パターンカタログ</title>
+<title>弾道シミュレーター</title>
 <style>
-body{margin:0;background:#111;color:#fff;font-family:'Segoe UI',sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh}
-h1{margin-top:40px;color:#ffaa00;font-size:28px}
-p.sub{color:#888;margin-top:4px;font-size:14px}
-.cards{display:flex;flex-wrap:wrap;gap:20px;justify-content:center;margin-top:30px;padding:0 20px}
-.card{background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:20px;width:280px;cursor:pointer;transition:all 0.2s}
-.card:hover{border-color:#ffaa00;transform:translateY(-3px);box-shadow:0 6px 20px rgba(255,170,0,0.15)}
-.card h3{margin:0 0 8px 0;color:#ffaa00;font-size:18px}
-.card p{color:#aaa;font-size:13px;line-height:1.5;margin:0}
-.card .tag{display:inline-block;background:#222;color:#888;font-size:11px;padding:2px 8px;border-radius:4px;margin-top:10px}
-footer{margin-top:auto;padding:30px;color:#444;font-size:12px}
+body{margin:0;overflow:hidden;background:#111;font-family:monospace}
+canvas{display:block}
+#top-left{position:absolute;top:10px;left:10px;color:#fff;font-size:14px;line-height:1.6;background:rgba(0,0,0,0.7);padding:10px;border-radius:6px;max-width:400px}
+#top-left h3{margin:0 0 6px 0;color:#ffaa00}
+#top-left select{background:#222;color:#fff;border:1px solid #555;padding:4px 8px;font-size:14px;font-family:monospace;border-radius:4px;margin-bottom:6px;width:100%}
+#patternCheckboxes{margin-bottom:8px}
+#patternCheckboxes label{display:block;cursor:pointer;padding:2px 0;color:#ccc;font-size:13px}
+#patternCheckboxes label:hover{color:#fff}
+#patternCheckboxes input[type=checkbox]{accent-color:#ffaa00;margin-right:6px}
+.pattern-section-title{color:#ffaa00;font-size:13px;font-weight:bold;margin:12px 0 4px 0;padding-top:8px;border-top:1px solid #444}
+#patternDesc{color:#ccc;font-size:13px;margin-bottom:8px}
+#controls-guide{color:#888;font-size:12px}
+#param-panel{position:absolute;top:10px;right:10px;color:#fff;font-size:13px;background:rgba(0,0,0,0.7);padding:12px;border-radius:6px;min-width:220px}
+#param-panel h4{margin:0 0 10px 0;color:#ffaa00}
+.param-row{margin-bottom:10px}
+.param-row label{display:block;margin-bottom:2px;color:#ccc}
+.param-row input[type=range]{width:100%;accent-color:#ffaa00}
+.param-row .param-val{float:right;color:#ffaa00}
+#legend{position:absolute;bottom:10px;left:10px;color:#fff;font-size:13px;background:rgba(0,0,0,0.7);padding:10px;border-radius:6px;line-height:1.8}
+#hit-counter{position:absolute;bottom:10px;right:10px;color:#fff;font-size:16px;background:rgba(0,0,0,0.7);padding:10px 16px;border-radius:6px}
+#hit-counter .count{color:#ff4444;font-size:24px;font-weight:bold}
+#hit-flash{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(255,50,50,0.3);pointer-events:none;opacity:0;transition:opacity 0.05s}
+#cam-mode{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#ffaa00;font-size:28px;font-weight:bold;pointer-events:none;opacity:0;transition:opacity 0.3s;text-shadow:0 0 10px rgba(0,0,0,0.8)}
+#crosshair{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:rgba(255,255,255,0.5);font-size:24px;pointer-events:none;display:none}
 </style>
 </head>
 <body>
-<h1>🎯 Projectile Simulator</h1>
-<p class="sub">3Dアクションゲーム プロジェクタイル弾道パターンカタログ</p>
-
-<div class="cards">
-  <div class="card" onclick="location.href='alternating.html'">
-    <h3>↔️ 左右交互オフセット弾</h3>
-    <p>プレイヤー方向を基準に左右交互にオフセット。回避を左右に強制させる弾道パターン。</p>
-    <span class="tag">WASD移動 + Spaceジャンプ</span>
+<div id="top-left">
+  <h3>🎯 弾道シミュレーター</h3>
+  <div id="patternCheckboxes"></div>
+  <div id="patternDesc"></div>
+  <div id="controls-guide">
+    [ WASD ] 移動 &nbsp; [ Space ] ジャンプ &nbsp; [ R ] リセット &nbsp; [ P ] 一時停止<br>
+    [ T ] 俯瞰/TPS切替 &nbsp; マウスドラッグ: カメラ回転
   </div>
-
-  <!-- 新しいパターンはここに追加 -->
-
 </div>
+<div id="param-panel">
+  <h4>弾パラメータ</h4>
+  <div id="sliders"></div>
+  <h4 style="margin-top:16px;border-top:1px solid #444;padding-top:10px">プレイヤー</h4>
+  <div id="player-sliders"></div>
+</div>
+<div id="legend"></div>
+<div id="hit-counter">被弾: <span class="count" id="hitCount">0</span></div>
+<div id="hit-flash"></div>
+<div id="cam-mode"></div>
+<div id="crosshair">+</div>
 
-<footer>Projectile Simulator — Built with Three.js</footer>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ===== PATTERN DEFINITIONS ===== */
+const PATTERNS = {
+  alternating: {
+    name: '左右サインスイープ弾',
+    description: '敵がプレイヤー方向を基準にサインカーブで左右にスイープしながら連射。着弾点が波を描く。',
+    params: [
+      { key: 'sweepWidth', name: 'スイープ幅', min: 1, max: 15, step: 0.5, default: 11.5 },
+      { key: 'sweepPeriod', name: '1周期の弾数', min: 4, max: 40, step: 1, default: 33 },
+      { key: 'fireInterval', name: '発射間隔(秒)', min: 0.05, max: 1, step: 0.05, default: 0.1 },
+      { key: 'bulletSpeed', name: '弾速', min: 3, max: 25, step: 1, default: 25 },
+    ],
+    legend: [
+      { color: '#ff3333', label: '🔴 Enemy (発射元)' },
+      { color: '#3388ff', label: '🔵 Player (ターゲット)' },
+      { color: '#ff6600', label: '🟠 右寄り弾' },
+      { color: '#66aaff', label: '🔵 左寄り弾' },
+      { color: '#ffffff', label: '⚪ 中央通過弾' },
+    ],
+    state: () => ({ shotIndex: 0, fireTimer: 0 }),
+    update(ctx, dt) {
+      const s = ctx.patternState;
+      s.fireTimer += dt;
+      if (s.fireTimer >= ctx.params.fireInterval) {
+        s.fireTimer = 0;
+        this._fire(ctx, s);
+      }
+      // show sweep range markers
+      const toP = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+      toP.y = 0; toP.normalize();
+      const right = new THREE.Vector3().crossVectors(toP, new THREE.Vector3(0,1,0)).normalize();
+      const sw = ctx.params.sweepWidth;
+      ctx.markers[0].position.set(ctx.player.position.x + right.x*sw, 0.05, ctx.player.position.z + right.z*sw);
+      ctx.markers[1].position.set(ctx.player.position.x - right.x*sw, 0.05, ctx.player.position.z - right.z*sw);
+      ctx.markers[0].visible = true;
+      ctx.markers[1].visible = true;
+    },
+    _fire(ctx, s) {
+      const toPlayer = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+      toPlayer.y = 0; toPlayer.normalize();
+      const right = new THREE.Vector3().crossVectors(toPlayer, new THREE.Vector3(0,1,0)).normalize();
+      // sine sweep: offset oscillates smoothly
+      const phase = (s.shotIndex / ctx.params.sweepPeriod) * Math.PI * 2;
+      const sinVal = Math.sin(phase);
+      const offsetDist = sinVal * ctx.params.sweepWidth;
+      const offset = right.clone().multiplyScalar(offsetDist);
+      const targetPos = ctx.player.position.clone().add(offset);
+      targetPos.y = 1;
+      const bulletDir = new THREE.Vector3().subVectors(targetPos, ctx.enemy.position).normalize();
+      // color: lerp from blue(left) through white(center) to orange(right)
+      const t = sinVal; // -1 to 1
+      let color, emissive;
+      if (t > 0.1) {
+        color = 0xff6600; emissive = 0x662200;
+      } else if (t < -0.1) {
+        color = 0x66aaff; emissive = 0x223366;
+      } else {
+        color = 0xcccccc; emissive = 0x444444;
+      }
+      ctx.spawnBullet(bulletDir, color, emissive, ctx.params.bulletSpeed);
+      s.shotIndex++;
+    },
+  },
+
+  straight: {
+    name: '直線狙い弾',
+    description: '敵がプレイヤーに向かって直線的に弾を発射する。最も基本的な弾パターン。',
+    params: [
+      { key: 'fireInterval', name: '発射間隔(秒)', min: 0.1, max: 2, step: 0.1, default: 0.5 },
+      { key: 'bulletSpeed', name: '弾速', min: 3, max: 30, step: 1, default: 12 },
+    ],
+    legend: [
+      { color: '#ff3333', label: '🔴 Enemy (発射元)' },
+      { color: '#3388ff', label: '🔵 Player (ターゲット)' },
+      { color: '#ffcc00', label: '🟡 弾 / 軌跡' },
+    ],
+    state: () => ({ fireTimer: 0 }),
+    update(ctx, dt) {
+      const s = ctx.patternState;
+      s.fireTimer += dt;
+      if (s.fireTimer >= ctx.params.fireInterval) {
+        s.fireTimer = 0;
+        const dir = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+        dir.y = 0; dir.normalize();
+        dir.y = (ctx.player.position.y - ctx.enemy.position.y + 0.25) / ctx.player.position.distanceTo(ctx.enemy.position);
+        dir.normalize();
+        ctx.spawnBullet(dir, 0xffcc00, 0x665500, ctx.params.bulletSpeed);
+      }
+      ctx.markers.forEach(m => m.visible = false);
+    },
+  },
+
+  spread: {
+    name: '扇状弾（スプレッド）',
+    description: '敵がプレイヤー方向を中心に扇状に複数弾を同時発射する。',
+    params: [
+      { key: 'fireInterval', name: '発射間隔(秒)', min: 0.3, max: 3, step: 0.1, default: 1.0 },
+      { key: 'bulletSpeed', name: '弾速', min: 3, max: 25, step: 1, default: 10 },
+      { key: 'spreadAngle', name: '扇角度(度)', min: 10, max: 90, step: 5, default: 40 },
+      { key: 'bulletCount', name: '弾数', min: 2, max: 9, step: 1, default: 5 },
+    ],
+    legend: [
+      { color: '#ff3333', label: '🔴 Enemy (発射元)' },
+      { color: '#3388ff', label: '🔵 Player (ターゲット)' },
+      { color: '#ff44ff', label: '🟣 弾 / 軌跡' },
+    ],
+    state: () => ({ fireTimer: 0 }),
+    update(ctx, dt) {
+      const s = ctx.patternState;
+      s.fireTimer += dt;
+      if (s.fireTimer >= ctx.params.fireInterval) {
+        s.fireTimer = 0;
+        const toPlayer = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+        toPlayer.y = 0; toPlayer.normalize();
+        const count = Math.round(ctx.params.bulletCount);
+        const totalAngle = ctx.params.spreadAngle * Math.PI / 180;
+        for (let i = 0; i < count; i++) {
+          const angle = count === 1 ? 0 : -totalAngle/2 + (totalAngle/(count-1)) * i;
+          const dir = toPlayer.clone().applyAxisAngle(new THREE.Vector3(0,1,0), angle);
+          ctx.spawnBullet(dir, 0xff44ff, 0x441144, ctx.params.bulletSpeed);
+        }
+      }
+      ctx.markers.forEach(m => m.visible = false);
+    },
+  },
+
+  shockwave: {
+    name: '地面衝撃波',
+    description: '敵の足元からリング状の衝撃波が定期的に放出される。地上にいると被弾。ジャンプで回避。',
+    params: [
+      { key: 'fireInterval', name: '発射間隔(秒)', min: 0.5, max: 5, step: 0.5, default: 2.0 },
+      { key: 'waveSpeed', name: '波速', min: 3, max: 30, step: 1, default: 12 },
+      { key: 'waveWidth', name: '波の幅', min: 0.5, max: 15, step: 0.5, default: 1.5 },
+      { key: 'safeHeight', name: '安全高度', min: 1.5, max: 5, step: 0.5, default: 2.5 },
+    ],
+    legend: [
+      { color: '#ff3333', label: '🔴 Enemy (発射元)' },
+      { color: '#3388ff', label: '🔵 Player (ターゲット)' },
+      { color: '#ff8800', label: '🟠 衝撃波リング' },
+      { color: '#888', label: '⚪ ジャンプで回避!' },
+    ],
+    state: () => ({ fireTimer: 0, waves: [] }),
+    update(ctx, dt) {
+      const s = ctx.patternState;
+      s.fireTimer += dt;
+
+      // Spawn new wave
+      if (s.fireTimer >= ctx.params.fireInterval) {
+        s.fireTimer = 0;
+        // Create ring mesh
+        const geo = new THREE.RingGeometry(0.1, 0.5, 48);
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0xff8800, side: THREE.DoubleSide,
+          transparent: true, opacity: 0.8
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.rotation.x = -Math.PI / 2;
+        mesh.position.set(ctx.enemy.position.x, 0.1, ctx.enemy.position.z);
+        ctx.scene.add(mesh);
+
+        // Warning flash on ground
+        const flashGeo = new THREE.CircleGeometry(1.5, 24);
+        const flashMat = new THREE.MeshBasicMaterial({
+          color: 0xff4400, transparent: true, opacity: 0.6, side: THREE.DoubleSide
+        });
+        const flash = new THREE.Mesh(flashGeo, flashMat);
+        flash.rotation.x = -Math.PI / 2;
+        flash.position.set(ctx.enemy.position.x, 0.05, ctx.enemy.position.z);
+        ctx.scene.add(flash);
+
+        s.waves.push({
+          mesh, flash, radius: 0.5, age: 0,
+          originX: ctx.enemy.position.x, originZ: ctx.enemy.position.z,
+          hasHit: false
+        });
+      }
+
+      // Update waves
+      for (let i = s.waves.length - 1; i >= 0; i--) {
+        const w = s.waves[i];
+        w.age += dt;
+        w.radius += ctx.params.waveSpeed * dt;
+
+        // Remove flash after 0.3s
+        if (w.flash && w.age > 0.3) {
+          ctx.scene.remove(w.flash);
+          w.flash = null;
+        }
+
+        // Update ring geometry
+        const inner = Math.max(0.1, w.radius - ctx.params.waveWidth / 2);
+        const outer = w.radius + ctx.params.waveWidth / 2;
+        w.mesh.geometry.dispose();
+        w.mesh.geometry = new THREE.RingGeometry(inner, outer, 48);
+        w.mesh.material.opacity = Math.max(0, 0.8 - w.age * 0.15);
+        w.mesh.scale.setScalar(1);
+
+        // Hit detection: player on ground and within ring
+        if (!w.hasHit) {
+          const dx = ctx.player.position.x - w.originX;
+          const dz = ctx.player.position.z - w.originZ;
+          const playerDist = Math.sqrt(dx * dx + dz * dz);
+          const isInRing = playerDist >= inner && playerDist <= outer;
+          const isOnGround = ctx.player.position.y < ctx.params.safeHeight;
+
+          if (isInRing && isOnGround && !ctx.isInvincible) {
+            w.hasHit = true;
+            ctx.onHit();
+            ctx.spawnHitParticles(ctx.player.position.clone());
+          }
+        }
+
+        // Remove when too large or old
+        if (w.radius > 30 || w.age > 5) {
+          ctx.scene.remove(w.mesh);
+          if (w.flash) ctx.scene.remove(w.flash);
+          s.waves.splice(i, 1);
+        }
+      }
+
+      ctx.markers.forEach(m => m.visible = false);
+    },
+  },
+};
+
+/* ===== SCENE SETUP ===== */
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 200);
+camera.position.set(0, 18, -22);
+
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0x111111);
+document.body.appendChild(renderer.domElement);
+
+const orbitCtrl = new OrbitControls(camera, renderer.domElement);
+orbitCtrl.target.set(0, 0, 5);
+orbitCtrl.update();
+
+scene.add(new THREE.AmbientLight(0x444444));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+dirLight.position.set(5, 10, -5);
+scene.add(dirLight);
+
+const grid = new THREE.GridHelper(40, 20, 0x333333, 0x222222);
+scene.add(grid);
+
+const dangerGeo = new THREE.PlaneGeometry(14, 30);
+const dangerMat = new THREE.MeshBasicMaterial({color:0xff0000, transparent:true, opacity:0.03, side:THREE.DoubleSide});
+const dangerPlane = new THREE.Mesh(dangerGeo, dangerMat);
+dangerPlane.rotation.x = -Math.PI/2;
+dangerPlane.position.set(0, 0.01, 7.5);
+scene.add(dangerPlane);
+
+// enemy
+const enemy = new THREE.Mesh(
+  new THREE.BoxGeometry(2, 2.5, 1.5),
+  new THREE.MeshPhongMaterial({color:0xff3333, emissive:0x441111})
+);
+enemy.position.set(0, 1.25, 18);
+scene.add(enemy);
+
+function makeLabel(text, color) {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 32;
+  const ctx2 = c.getContext('2d');
+  ctx2.fillStyle = color; ctx2.font = 'bold 20px monospace';
+  ctx2.textAlign = 'center'; ctx2.fillText(text, 64, 22);
+  const tex = new THREE.CanvasTexture(c);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex}));
+  s.scale.set(3, 0.8, 1);
+  return s;
+}
+const enemyLabel = makeLabel('ENEMY', '#ff3333');
+enemyLabel.position.set(0, 3.5, 18);
+scene.add(enemyLabel);
+
+// player
+const player = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.5, 0.5, 1.8, 12),
+  new THREE.MeshPhongMaterial({color:0x3388ff, emissive:0x112244})
+);
+player.position.set(0, 1.1, 0);
+scene.add(player);
+const playerLabel = makeLabel('PLAYER', '#3388ff');
+scene.add(playerLabel);
+
+// markers (reusable, 2 rings)
+const markers = [0xff6600, 0x66aaff].map(color => {
+  const m = new THREE.Mesh(
+    new THREE.RingGeometry(0.3, 0.5, 16),
+    new THREE.MeshBasicMaterial({color, side:THREE.DoubleSide, transparent:true, opacity:0.5})
+  );
+  m.rotation.x = -Math.PI/2; m.position.y = 0.05;
+  m.visible = false;
+  scene.add(m);
+  return m;
+});
+
+/* ===== BULLET MANAGEMENT ===== */
+let bullets = [];
+let hitParticles = [];
+let paused = false;
+let isJumping = false;
+let jumpVelocity = 0;
+let hitCount = 0;
+let playerFlashTimer = 0;
+let dashTimer = 0;
+let dashDir = new THREE.Vector3();
+let isInvincible = false;
+
+const PLAYER_PARAMS = [
+  { key: 'moveSpeed', name: '移動速度', min: 2, max: 20, step: 1, default: 7 },
+  { key: 'jumpPower', name: 'ジャンプ力', min: 3, max: 15, step: 0.5, default: 8 },
+  { key: 'dashSpeed', name: 'ダッシュ速度', min: 10, max: 80, step: 5, default: 20 },
+  { key: 'dashDuration', name: 'ダッシュ時間(秒)', min: 0.05, max: 0.5, step: 0.05, default: 0.2 },
+];
+const playerParams = {};
+PLAYER_PARAMS.forEach(p => playerParams[p.key] = p.default);
+const playerOriginalColor = new THREE.Color(0x3388ff);
+const playerOriginalEmissive = new THREE.Color(0x112244);
+const HIT_RADIUS = 1.2;
+// Multi-pattern state: { key: { params: {...}, state: {...} } }
+let activePatterns = {};
+
+// TPS camera
+let tpsMode = false;
+let tpsYaw = Math.PI; // facing +Z (toward enemy)
+let tpsPitch = 0.3;   // slight downward look
+const TPS_DISTANCE = 8;
+const TPS_HEIGHT_OFFSET = 3;
+const TPS_MOUSE_SENS = 0.003;
+
+function spawnBullet(dir, color, emissive, speed) {
+  speed = speed || 10;
+  const geo = new THREE.SphereGeometry(0.3, 12, 12);
+  const mat = new THREE.MeshPhongMaterial({color, emissive});
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(enemy.position);
+  mesh.position.y = 1;
+  scene.add(mesh);
+
+  const trailGeo = new THREE.BufferGeometry();
+  const positions = new Float32Array(600);
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  trailGeo.setDrawRange(0, 0);
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color, transparent:true, opacity:0.5}));
+  scene.add(trail);
+
+  bullets.push({mesh, trail, dir, speed, trailPts:[enemy.position.clone().setY(1)], age:0});
+}
+
+function clearBullets() {
+  bullets.forEach(b => { scene.remove(b.mesh); scene.remove(b.trail); });
+  bullets = [];
+}
+
+function spawnHitParticles(pos) {
+  for (let i = 0; i < 8; i++) {
+    const geo = new THREE.SphereGeometry(0.12, 6, 6);
+    const mat = new THREE.MeshBasicMaterial({color:0xff4444});
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(pos);
+    const vel = new THREE.Vector3(
+      (Math.random()-0.5)*8,
+      Math.random()*6+2,
+      (Math.random()-0.5)*8
+    );
+    scene.add(mesh);
+    hitParticles.push({mesh, vel, life:0.5});
+  }
+}
+
+function onHit() {
+  hitCount++;
+  document.getElementById('hitCount').textContent = hitCount;
+  playerFlashTimer = 0.3;
+  // screen flash
+  const flash = document.getElementById('hit-flash');
+  flash.style.opacity = '1';
+  setTimeout(() => flash.style.opacity = '0', 100);
+}
+
+function reset() {
+  clearBullets();
+  hitParticles.forEach(p => scene.remove(p.mesh));
+  hitParticles = [];
+  // Clean up shockwave meshes for all active patterns
+  Object.values(activePatterns).forEach(ap => {
+    if (ap.state && ap.state.waves) {
+      ap.state.waves.forEach(w => {
+        scene.remove(w.mesh);
+        if (w.flash) scene.remove(w.flash);
+      });
+    }
+  });
+  player.position.set(0, 1.1, 0);
+  isJumping = false; jumpVelocity = 0;
+  hitCount = 0;
+  document.getElementById('hitCount').textContent = '0';
+  playerFlashTimer = 0;
+  player.material.color.copy(playerOriginalColor);
+  player.material.emissive.copy(playerOriginalEmissive);
+  // Reset all active pattern states
+  Object.entries(activePatterns).forEach(([key, ap]) => {
+    ap.state = PATTERNS[key].state();
+  });
+}
+
+/* ===== UI ===== */
+const checkboxContainer = document.getElementById('patternCheckboxes');
+Object.entries(PATTERNS).forEach(([key, pat]) => {
+  const label = document.createElement('label');
+  const cb = document.createElement('input');
+  cb.type = 'checkbox';
+  cb.value = key;
+  cb.checked = (key === 'alternating');
+  label.appendChild(cb);
+  label.appendChild(document.createTextNode(pat.name));
+  checkboxContainer.appendChild(label);
+  cb.addEventListener('change', () => onPatternToggle(key, cb.checked));
+});
+
+function activatePattern(key) {
+  const pat = PATTERNS[key];
+  const params = {};
+  pat.params.forEach(p => params[p.key] = p.default);
+  activePatterns[key] = { params, state: pat.state() };
+}
+
+function deactivatePattern(key) {
+  const ap = activePatterns[key];
+  if (ap && ap.state && ap.state.waves) {
+    ap.state.waves.forEach(w => {
+      scene.remove(w.mesh);
+      if (w.flash) scene.remove(w.flash);
+    });
+  }
+  // Remove bullets spawned by this pattern (can't track, so leave them)
+  delete activePatterns[key];
+}
+
+function onPatternToggle(key, checked) {
+  if (checked) {
+    activatePattern(key);
+  } else {
+    deactivatePattern(key);
+  }
+  buildSliders();
+  updateLegend();
+}
+
+function buildSliders() {
+  const container = document.getElementById('sliders');
+  container.innerHTML = '';
+  const keys = Object.keys(activePatterns);
+  // Description
+  document.getElementById('patternDesc').textContent = keys.map(k => PATTERNS[k].description).join(' / ') || '';
+
+  keys.forEach(key => {
+    const pat = PATTERNS[key];
+    const ap = activePatterns[key];
+    // Section title
+    const title = document.createElement('div');
+    title.className = 'pattern-section-title';
+    title.textContent = pat.name;
+    if (keys.length > 1) container.appendChild(title);
+
+    pat.params.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'param-row';
+      const valSpan = document.createElement('span');
+      valSpan.className = 'param-val';
+      valSpan.textContent = ap.params[p.key];
+      const label = document.createElement('label');
+      label.textContent = p.name + ' ';
+      label.appendChild(valSpan);
+      const input = document.createElement('input');
+      input.type = 'range'; input.min = p.min; input.max = p.max; input.step = p.step; input.value = ap.params[p.key];
+      input.addEventListener('input', () => {
+        ap.params[p.key] = parseFloat(input.value);
+        valSpan.textContent = input.value;
+      });
+      row.appendChild(label);
+      row.appendChild(input);
+      container.appendChild(row);
+    });
+  });
+}
+
+function updateLegend() {
+  const legendDiv = document.getElementById('legend');
+  const allLegends = Object.keys(activePatterns).flatMap(k => PATTERNS[k].legend);
+  // Deduplicate by label
+  const seen = new Set();
+  const unique = allLegends.filter(l => { if (seen.has(l.label)) return false; seen.add(l.label); return true; });
+  legendDiv.innerHTML = unique.map(l => `<div style="color:${l.color}">${l.label}</div>`).join('');
+}
+
+// Player param sliders (built once)
+function buildPlayerSliders() {
+  const container = document.getElementById('player-sliders');
+  container.innerHTML = '';
+  PLAYER_PARAMS.forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const valSpan = document.createElement('span');
+    valSpan.className = 'param-val';
+    valSpan.textContent = p.default;
+    const label = document.createElement('label');
+    label.textContent = p.name + ' ';
+    label.appendChild(valSpan);
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = p.min; input.max = p.max; input.step = p.step; input.value = p.default;
+    input.addEventListener('input', () => {
+      playerParams[p.key] = parseFloat(input.value);
+      valSpan.textContent = input.value;
+    });
+    row.appendChild(label);
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+}
+
+activatePattern('alternating');
+buildSliders();
+updateLegend();
+buildPlayerSliders();
+
+/* ===== INPUT ===== */
+const keys = {};
+
+function showCamMode(text) {
+  const el = document.getElementById('cam-mode');
+  el.textContent = text;
+  el.style.opacity = '1';
+  setTimeout(() => el.style.opacity = '0', 800);
+}
+
+function setTpsMode(on) {
+  tpsMode = on;
+  orbitCtrl.enabled = !on;
+  document.getElementById('crosshair').style.display = on ? 'block' : 'none';
+  showCamMode(on ? 'TPS MODE' : '俯瞰 MODE');
+  if (on) {
+    // Face toward enemy
+    const dx = enemy.position.x - player.position.x;
+    const dz = enemy.position.z - player.position.z;
+    tpsYaw = Math.atan2(dx, dz);
+    tpsPitch = 0.3;
+    // Request pointer lock for mouse look
+    renderer.domElement.requestPointerLock();
+  } else {
+    document.exitPointerLock();
+    // Reset orbit camera
+    orbitCtrl.target.set(0, 0, 5);
+    camera.position.set(0, 18, -22);
+    orbitCtrl.update();
+  }
+}
+
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyP') {
+    paused = !paused;
+    if (tpsMode) {
+      if (paused) {
+        document.exitPointerLock();
+      } else {
+        renderer.domElement.requestPointerLock();
+      }
+    }
+  }
+  if (e.code === 'KeyR') reset();
+  if (e.code === 'KeyT') setTpsMode(!tpsMode);
+});
+addEventListener('keyup', e => keys[e.code] = false);
+
+// Mouse look for TPS
+addEventListener('mousemove', e => {
+  if (!tpsMode) return;
+  if (document.pointerLockElement !== renderer.domElement) return;
+  tpsYaw -= e.movementX * TPS_MOUSE_SENS;
+  tpsPitch += e.movementY * TPS_MOUSE_SENS;
+  tpsPitch = Math.max(-0.5, Math.min(1.2, tpsPitch));
+});
+
+// Re-lock pointer on click in TPS mode
+renderer.domElement.addEventListener('click', () => {
+  if (tpsMode && document.pointerLockElement !== renderer.domElement) {
+    renderer.domElement.requestPointerLock();
+  }
+});
+
+// Right-click dash
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+addEventListener('mousedown', e => {
+  if (e.button !== 2) return; // right click only
+  if (dashTimer > 0) return; // already dashing
+
+  // Determine dash direction from input, or default forward
+  const forward = tpsMode
+    ? new THREE.Vector3(Math.sin(tpsYaw), 0, Math.cos(tpsYaw))
+    : new THREE.Vector3(0, 0, 1);
+  const right = tpsMode
+    ? new THREE.Vector3(Math.cos(tpsYaw), 0, -Math.sin(tpsYaw))
+    : new THREE.Vector3(-1, 0, 0);
+
+  dashDir.set(0, 0, 0);
+  if (keys['KeyW']) dashDir.add(forward);
+  if (keys['KeyS']) dashDir.addScaledVector(forward, -1);
+  if (keys['KeyA']) dashDir.add(right);
+  if (keys['KeyD']) dashDir.addScaledVector(right, -1);
+
+  // Neutral = forward
+  if (dashDir.lengthSq() < 0.01) dashDir.copy(forward);
+  dashDir.normalize();
+
+  dashTimer = playerParams.dashDuration;
+  isInvincible = true;
+});
+
+/* ===== ANIMATION ===== */
+let lastTime = performance.now();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  if (paused) { renderer.render(scene, camera); return; }
+
+  // player movement
+  const pSpeed = playerParams.moveSpeed * dt;
+  if (tpsMode) {
+    // Camera-relative movement
+    const forward = new THREE.Vector3(Math.sin(tpsYaw), 0, Math.cos(tpsYaw));
+    const right = new THREE.Vector3(Math.cos(tpsYaw), 0, -Math.sin(tpsYaw));
+    if (keys['KeyW']) player.position.addScaledVector(forward, pSpeed);
+    if (keys['KeyS']) player.position.addScaledVector(forward, -pSpeed);
+    if (keys['KeyA']) player.position.addScaledVector(right, pSpeed);
+    if (keys['KeyD']) player.position.addScaledVector(right, -pSpeed);
+  } else {
+    if (keys['KeyA']) player.position.x += pSpeed;
+    if (keys['KeyD']) player.position.x -= pSpeed;
+    if (keys['KeyW']) player.position.z += pSpeed;
+    if (keys['KeyS']) player.position.z -= pSpeed;
+  }
+  player.position.x = Math.max(-12, Math.min(12, player.position.x));
+  player.position.z = Math.max(-5, Math.min(16, player.position.z));
+
+  if (keys['Space'] && !isJumping) {
+    isJumping = true; jumpVelocity = playerParams.jumpPower; keys['Space'] = false;
+  }
+  if (isJumping) {
+    player.position.y += jumpVelocity * dt;
+    jumpVelocity -= 20 * dt;
+    if (player.position.y <= 1.1) { player.position.y = 1.1; isJumping = false; jumpVelocity = 0; }
+  }
+
+  // Dash update
+  if (dashTimer > 0) {
+    dashTimer -= dt;
+    player.position.addScaledVector(dashDir, playerParams.dashSpeed * dt);
+    // Ghost effect during dash
+    player.material.opacity = 0.4;
+    player.material.transparent = true;
+    player.material.emissive.set(0x44ffff);
+    if (dashTimer <= 0) {
+      dashTimer = 0;
+      isInvincible = false;
+      player.material.opacity = 1.0;
+      player.material.transparent = false;
+      if (playerFlashTimer <= 0) {
+        player.material.emissive.copy(playerOriginalEmissive);
+      }
+    }
+  }
+
+  player.position.x = Math.max(-12, Math.min(12, player.position.x));
+  player.position.z = Math.max(-5, Math.min(16, player.position.z));
+
+  playerLabel.position.set(player.position.x, 3, player.position.z);
+
+  // TPS camera update
+  if (tpsMode) {
+    const camOffX = -Math.sin(tpsYaw) * TPS_DISTANCE * Math.cos(tpsPitch);
+    const camOffZ = -Math.cos(tpsYaw) * TPS_DISTANCE * Math.cos(tpsPitch);
+    const camOffY = TPS_DISTANCE * Math.sin(tpsPitch) + TPS_HEIGHT_OFFSET;
+    camera.position.set(
+      player.position.x + camOffX,
+      player.position.y + camOffY,
+      player.position.z + camOffZ
+    );
+    const lookTarget = new THREE.Vector3(
+      player.position.x + Math.sin(tpsYaw) * 5,
+      player.position.y + 1.5 - tpsPitch * 2,
+      player.position.z + Math.cos(tpsYaw) * 5
+    );
+    camera.lookAt(lookTarget);
+  }
+
+  // pattern update (all active)
+  Object.entries(activePatterns).forEach(([key, ap]) => {
+    const pat = PATTERNS[key];
+    const ctx = { player, enemy, params: ap.params, patternState: ap.state, markers, spawnBullet, scene, onHit, spawnHitParticles, isInvincible };
+    pat.update(ctx, dt);
+  });
+
+  // update bullets
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    const b = bullets[i];
+    b.age += dt;
+    b.mesh.position.addScaledVector(b.dir, b.speed * dt);
+    b.mesh.scale.setScalar(1 + Math.sin(b.age * 15) * 0.15);
+
+    b.trailPts.push(b.mesh.position.clone());
+    if (b.trailPts.length > 100) b.trailPts.shift();
+    const posArr = b.trail.geometry.attributes.position.array;
+    for (let j = 0; j < b.trailPts.length; j++) {
+      posArr[j*3] = b.trailPts[j].x;
+      posArr[j*3+1] = b.trailPts[j].y;
+      posArr[j*3+2] = b.trailPts[j].z;
+    }
+    b.trail.geometry.attributes.position.needsUpdate = true;
+    b.trail.geometry.setDrawRange(0, b.trailPts.length);
+
+    // hit detection
+    const dist = b.mesh.position.distanceTo(player.position);
+    if (dist < HIT_RADIUS && !isInvincible) {
+      spawnHitParticles(b.mesh.position.clone());
+      onHit();
+      scene.remove(b.mesh); scene.remove(b.trail);
+      bullets.splice(i, 1);
+      continue;
+    }
+
+    if (b.mesh.position.z < -15 || b.age > 5) {
+      scene.remove(b.mesh); scene.remove(b.trail);
+      bullets.splice(i, 1);
+    }
+  }
+
+  // hit particles update
+  for (let i = hitParticles.length - 1; i >= 0; i--) {
+    const p = hitParticles[i];
+    p.life -= dt;
+    p.vel.y -= 15 * dt;
+    p.mesh.position.addScaledVector(p.vel, dt);
+    p.mesh.material.opacity = Math.max(0, p.life / 0.5);
+    p.mesh.material.transparent = true;
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      hitParticles.splice(i, 1);
+    }
+  }
+
+  // player flash
+  if (playerFlashTimer > 0) {
+    playerFlashTimer -= dt;
+    const flash = Math.sin(playerFlashTimer * 30) > 0;
+    player.material.color.set(flash ? 0xff3333 : 0x3388ff);
+    player.material.emissive.set(flash ? 0x441111 : 0x112244);
+    if (playerFlashTimer <= 0) {
+      player.material.color.copy(playerOriginalColor);
+      player.material.emissive.copy(playerOriginalEmissive);
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
 </body>
 </html>
