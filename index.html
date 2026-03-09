@@ -534,6 +534,10 @@ const EmitterManager = {
       }
 
       const em = slot.activeEmitter;
+      // Sync params from sliders in real-time
+      if (activePatterns[key]) {
+        em.params = { ...activePatterns[key].params };
+      }
       em.elapsed += dt;
 
       if (em.phase === 'windup') {
