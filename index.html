@@ -16,12 +16,13 @@ canvas{display:block}
 .pattern-section-title{color:#ffaa00;font-size:13px;font-weight:bold;margin:12px 0 4px 0;padding-top:8px;border-top:1px solid #444}
 #patternDesc{color:#ccc;font-size:13px;margin-bottom:8px}
 #controls-guide{color:#888;font-size:12px}
-#param-panel{position:absolute;top:10px;right:10px;color:#fff;font-size:13px;background:rgba(0,0,0,0.7);padding:12px;border-radius:6px;min-width:220px}
+#param-panel{position:absolute;top:10px;right:10px;color:#fff;font-size:13px;background:rgba(0,0,0,0.7);padding:12px;border-radius:6px;min-width:220px;max-height:90vh;overflow-y:auto}
 #param-panel h4{margin:0 0 10px 0;color:#ffaa00}
 .param-row{margin-bottom:10px}
 .param-row label{display:block;margin-bottom:2px;color:#ccc}
 .param-row input[type=range]{width:100%;accent-color:#ffaa00}
 .param-row .param-val{float:right;color:#ffaa00}
+.emitter-label{color:#ff8800;font-size:12px;margin:8px 0 4px 0;border-top:1px dashed #555;padding-top:6px}
 #legend{position:absolute;bottom:10px;left:10px;color:#fff;font-size:13px;background:rgba(0,0,0,0.7);padding:10px;border-radius:6px;line-height:1.8}
 #hit-counter{position:absolute;bottom:10px;right:10px;color:#fff;font-size:16px;background:rgba(0,0,0,0.7);padding:10px 16px;border-radius:6px}
 #hit-counter .count{color:#ff4444;font-size:24px;font-weight:bold}
@@ -43,8 +44,14 @@ canvas{display:block}
 <div id="param-panel">
   <h4>弾パラメータ</h4>
   <div id="sliders"></div>
+  <h4 style="margin-top:16px;border-top:1px solid #444;padding-top:10px">敵</h4>
+  <div id="enemy-sliders"></div>
   <h4 style="margin-top:16px;border-top:1px solid #444;padding-top:10px">プレイヤー</h4>
   <div id="player-sliders"></div>
+  <div style="margin-top:12px;border-top:1px solid #444;padding-top:10px">
+    <button id="saveDefaults" style="background:#333;color:#fff;border:1px solid #555;padding:6px 12px;cursor:pointer;border-radius:4px;font-family:monospace;margin-right:6px">💾 デフォルトとして保存</button>
+    <button id="resetDefaults" style="background:#333;color:#fff;border:1px solid #555;padding:6px 12px;cursor:pointer;border-radius:4px;font-family:monospace;margin-right:6px">🔄 初期値に戻す</button>
+  </div>
 </div>
 <div id="legend"></div>
 <div id="hit-counter">被弾: <span class="count" id="hitCount">0</span></div>
@@ -64,11 +71,19 @@ canvas{display:block}
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+/* ===== EMITTER PARAMS ===== */
+const EMITTER_PARAMS = [
+  { key: 'windup', name: '予兆時間(秒)', min: 0, max: 3, step: 0.1, default: 0 },
+  { key: 'cooldown', name: 'クールダウン(秒)', min: 0, max: 10, step: 0.5, default: 2.0 },
+  { key: 'burstCount', name: 'バースト弾数(0=無限)', min: 0, max: 50, step: 1, default: 0 },
+];
+
 /* ===== PATTERN DEFINITIONS ===== */
 const PATTERNS = {
   alternating: {
     name: '左右サインスイープ弾',
     description: '敵がプレイヤー方向を基準にサインカーブで左右にスイープしながら連射。着弾点が波を描く。',
+    emitterDefaults: { windup: 0, cooldown: 2.0 },
     params: [
       { key: 'sweepWidth', name: 'スイープ幅', min: 1, max: 15, step: 0.5, default: 11.5 },
       { key: 'sweepPeriod', name: '1周期の弾数', min: 4, max: 40, step: 1, default: 33 },
@@ -89,6 +104,7 @@ const PATTERNS = {
       if (s.fireTimer >= ctx.params.fireInterval) {
         s.fireTimer = 0;
         this._fire(ctx, s);
+        ctx.emitter.firedCount++;
       }
       // show sweep range markers
       const toP = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
@@ -104,7 +120,6 @@ const PATTERNS = {
       const toPlayer = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
       toPlayer.y = 0; toPlayer.normalize();
       const right = new THREE.Vector3().crossVectors(toPlayer, new THREE.Vector3(0,1,0)).normalize();
-      // sine sweep: offset oscillates smoothly
       const phase = (s.shotIndex / ctx.params.sweepPeriod) * Math.PI * 2;
       const sinVal = Math.sin(phase);
       const offsetDist = sinVal * ctx.params.sweepWidth;
@@ -112,8 +127,7 @@ const PATTERNS = {
       const targetPos = ctx.player.position.clone().add(offset);
       targetPos.y = 1;
       const bulletDir = new THREE.Vector3().subVectors(targetPos, ctx.enemy.position).normalize();
-      // color: lerp from blue(left) through white(center) to orange(right)
-      const t = sinVal; // -1 to 1
+      const t = sinVal;
       let color, emissive;
       if (t > 0.1) {
         color = 0xff6600; emissive = 0x662200;
@@ -130,6 +144,7 @@ const PATTERNS = {
   straight: {
     name: '直線狙い弾',
     description: '敵がプレイヤーに向かって直線的に弾を発射する。最も基本的な弾パターン。',
+    emitterDefaults: { windup: 0, cooldown: 2.0 },
     params: [
       { key: 'fireInterval', name: '発射間隔(秒)', min: 0.1, max: 2, step: 0.1, default: 0.5 },
       { key: 'bulletSpeed', name: '弾速', min: 3, max: 30, step: 1, default: 12 },
@@ -145,19 +160,24 @@ const PATTERNS = {
       s.fireTimer += dt;
       if (s.fireTimer >= ctx.params.fireInterval) {
         s.fireTimer = 0;
-        const dir = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
-        dir.y = 0; dir.normalize();
-        dir.y = (ctx.player.position.y - ctx.enemy.position.y + 0.25) / ctx.player.position.distanceTo(ctx.enemy.position);
-        dir.normalize();
-        ctx.spawnBullet(dir, 0xffcc00, 0x665500, ctx.params.bulletSpeed);
+        this._fire(ctx, s);
+        ctx.emitter.firedCount++;
       }
       ctx.markers.forEach(m => m.visible = false);
+    },
+    _fire(ctx, s) {
+      const dir = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+      dir.y = 0; dir.normalize();
+      dir.y = (ctx.player.position.y - ctx.enemy.position.y + 0.25) / ctx.player.position.distanceTo(ctx.enemy.position);
+      dir.normalize();
+      ctx.spawnBullet(dir, 0xffcc00, 0x665500, ctx.params.bulletSpeed);
     },
   },
 
   spread: {
     name: '扇状弾（スプレッド）',
     description: '敵がプレイヤー方向を中心に扇状に複数弾を同時発射する。',
+    emitterDefaults: { windup: 0, cooldown: 2.0 },
     params: [
       { key: 'fireInterval', name: '発射間隔(秒)', min: 0.3, max: 3, step: 0.1, default: 1.0 },
       { key: 'bulletSpeed', name: '弾速', min: 3, max: 25, step: 1, default: 10 },
@@ -175,23 +195,28 @@ const PATTERNS = {
       s.fireTimer += dt;
       if (s.fireTimer >= ctx.params.fireInterval) {
         s.fireTimer = 0;
-        const toPlayer = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
-        toPlayer.y = 0; toPlayer.normalize();
-        const count = Math.round(ctx.params.bulletCount);
-        const totalAngle = ctx.params.spreadAngle * Math.PI / 180;
-        for (let i = 0; i < count; i++) {
-          const angle = count === 1 ? 0 : -totalAngle/2 + (totalAngle/(count-1)) * i;
-          const dir = toPlayer.clone().applyAxisAngle(new THREE.Vector3(0,1,0), angle);
-          ctx.spawnBullet(dir, 0xff44ff, 0x441144, ctx.params.bulletSpeed);
-        }
+        this._fire(ctx, s);
+        ctx.emitter.firedCount++;
       }
       ctx.markers.forEach(m => m.visible = false);
+    },
+    _fire(ctx, s) {
+      const toPlayer = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+      toPlayer.y = 0; toPlayer.normalize();
+      const count = Math.round(ctx.params.bulletCount);
+      const totalAngle = ctx.params.spreadAngle * Math.PI / 180;
+      for (let i = 0; i < count; i++) {
+        const angle = count === 1 ? 0 : -totalAngle/2 + (totalAngle/(count-1)) * i;
+        const dir = toPlayer.clone().applyAxisAngle(new THREE.Vector3(0,1,0), angle);
+        ctx.spawnBullet(dir, 0xff44ff, 0x441144, ctx.params.bulletSpeed);
+      }
     },
   },
 
   shockwave: {
     name: '地面衝撃波',
     description: '敵の足元からリング状の衝撃波が定期的に放出される。地上にいると被弾。ジャンプで回避。',
+    emitterDefaults: { windup: 0.5, cooldown: 2.0 },
     params: [
       { key: 'fireInterval', name: '発射間隔(秒)', min: 0.5, max: 5, step: 0.5, default: 2.0 },
       { key: 'waveSpeed', name: '波速', min: 3, max: 30, step: 1, default: 12 },
@@ -212,7 +237,6 @@ const PATTERNS = {
       // Spawn new wave
       if (s.fireTimer >= ctx.params.fireInterval) {
         s.fireTimer = 0;
-        // Create ring mesh
         const geo = new THREE.RingGeometry(0.1, 0.5, 48);
         const mat = new THREE.MeshBasicMaterial({
           color: 0xff8800, side: THREE.DoubleSide,
@@ -223,7 +247,6 @@ const PATTERNS = {
         mesh.position.set(ctx.enemy.position.x, 0.1, ctx.enemy.position.z);
         ctx.scene.add(mesh);
 
-        // Warning flash on ground
         const flashGeo = new THREE.CircleGeometry(1.5, 24);
         const flashMat = new THREE.MeshBasicMaterial({
           color: 0xff4400, transparent: true, opacity: 0.6, side: THREE.DoubleSide
@@ -238,6 +261,7 @@ const PATTERNS = {
           originX: ctx.enemy.position.x, originZ: ctx.enemy.position.z,
           hasHit: false
         });
+        ctx.emitter.firedCount++;
       }
 
       // Update waves
@@ -246,13 +270,11 @@ const PATTERNS = {
         w.age += dt;
         w.radius += ctx.params.waveSpeed * dt;
 
-        // Remove flash after 0.3s
         if (w.flash && w.age > 0.3) {
           ctx.scene.remove(w.flash);
           w.flash = null;
         }
 
-        // Update ring geometry
         const inner = Math.max(0.1, w.radius - ctx.params.waveWidth / 2);
         const outer = w.radius + ctx.params.waveWidth / 2;
         w.mesh.geometry.dispose();
@@ -260,7 +282,6 @@ const PATTERNS = {
         w.mesh.material.opacity = Math.max(0, 0.8 - w.age * 0.15);
         w.mesh.scale.setScalar(1);
 
-        // Hit detection: player on ground and within ring
         if (!w.hasHit) {
           const dx = ctx.player.position.x - w.originX;
           const dz = ctx.player.position.z - w.originZ;
@@ -275,7 +296,6 @@ const PATTERNS = {
           }
         }
 
-        // Remove when too large or old
         if (w.radius > 30 || w.age > 5) {
           ctx.scene.remove(w.mesh);
           if (w.flash) ctx.scene.remove(w.flash);
@@ -284,6 +304,64 @@ const PATTERNS = {
       }
 
       ctx.markers.forEach(m => m.visible = false);
+    },
+  },
+
+  homing: {
+    name: 'ランダム射出ホーミング弾',
+    description: '敵からランダムな方向に高速弾を射出し、各弾が緩くプレイヤーをホーミングする。四方八方から弧を描いて弾が迫ってくる。',
+    emitterDefaults: { windup: 0, cooldown: 2.0 },
+    params: [
+      { key: 'fireInterval', name: '発射間隔(秒)', min: 0.05, max: 1, step: 0.05, default: 0.15 },
+      { key: 'bulletSpeed', name: '弾速', min: 5, max: 35, step: 1, default: 18 },
+      { key: 'homingStrength', name: 'ホーミング強度', min: 0.1, max: 5, step: 0.1, default: 1.5 },
+      { key: 'spreadAngle', name: '射出角度幅(度)', min: 10, max: 180, step: 5, default: 90 },
+      { key: 'verticalSpread', name: '上下角度幅(度)', min: 0, max: 60, step: 5, default: 30 },
+      { key: 'targetGround', name: '地面狙い (0=本体, 1=足元)', min: 0, max: 1, step: 1, default: 0 },
+    ],
+    legend: [
+      { color: '#ff3333', label: '🔴 Enemy (発射元)' },
+      { color: '#3388ff', label: '🔵 Player (ターゲット)' },
+      { color: '#44ff44', label: '🟢 ホーミング弾 / 軌跡' },
+    ],
+    state: () => ({ fireTimer: 0 }),
+    update(ctx, dt) {
+      const s = ctx.patternState;
+      s.fireTimer += dt;
+      if (s.fireTimer >= ctx.params.fireInterval) {
+        s.fireTimer = 0;
+        this._fire(ctx, s);
+        ctx.emitter.firedCount++;
+      }
+      ctx.markers.forEach(m => m.visible = false);
+    },
+    _fire(ctx, s) {
+      const toPlayer = new THREE.Vector3().subVectors(ctx.player.position, ctx.enemy.position);
+      toPlayer.y = 0; toPlayer.normalize();
+
+      const hAngle = (Math.random() - 0.5) * ctx.params.spreadAngle * Math.PI / 180;
+      const vAngle = Math.random() * ctx.params.verticalSpread * Math.PI / 180;
+
+      const dir = toPlayer.clone();
+      dir.applyAxisAngle(new THREE.Vector3(0,1,0), hAngle);
+      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+      if (right.lengthSq() > 0.001) dir.applyAxisAngle(right, vAngle);
+      dir.normalize();
+
+      const strength = ctx.params.homingStrength;
+      const aimGround = ctx.params.targetGround >= 1;
+      const customUpdate = (b, dt, player) => {
+        const target = aimGround
+          ? new THREE.Vector3(player.position.x, 0.1, player.position.z)
+          : player.position;
+        const toP = new THREE.Vector3().subVectors(target, b.mesh.position);
+        toP.normalize();
+        b.dir.lerp(toP, strength * dt);
+        b.dir.normalize();
+        b.mesh.position.addScaledVector(b.dir, b.speed * dt);
+      };
+
+      ctx.spawnBullet(dir, 0x44ff44, 0x114411, ctx.params.bulletSpeed, customUpdate);
     },
   },
 };
@@ -382,6 +460,14 @@ const PLAYER_PARAMS = [
 ];
 const playerParams = {};
 PLAYER_PARAMS.forEach(p => playerParams[p.key] = p.default);
+
+const ENEMY_PARAMS = [
+  { key: 'posX', name: 'X座標', min: -15, max: 15, step: 0.5, default: 0 },
+  { key: 'posZ', name: 'Z座標(距離)', min: 5, max: 30, step: 0.5, default: 18 },
+  { key: 'posY', name: '高さ', min: 0, max: 10, step: 0.5, default: 1.25 },
+];
+const enemyParams = {};
+ENEMY_PARAMS.forEach(p => enemyParams[p.key] = p.default);
 const playerOriginalColor = new THREE.Color(0x3388ff);
 const playerOriginalEmissive = new THREE.Color(0x112244);
 const HIT_RADIUS = 1.2;
@@ -390,19 +476,140 @@ let activePatterns = {};
 
 // TPS camera
 let tpsMode = false;
-let tpsYaw = Math.PI; // facing +Z (toward enemy)
-let tpsPitch = 0.3;   // slight downward look
+let tpsYaw = Math.PI;
+let tpsPitch = 0.3;
 const TPS_DISTANCE = 8;
 const TPS_HEIGHT_OFFSET = 3;
 const TPS_MOUSE_SENS = 0.003;
 
-function spawnBullet(dir, color, emissive, speed) {
+/* ===== EMITTER MANAGER ===== */
+const EmitterManager = {
+  slots: {},
+
+  register(patternKey, params) {
+    this.slots[patternKey] = {
+      cooldownTimer: 0,
+      activeEmitter: null,
+      windupMesh: null,
+    };
+    this._spawn(patternKey, params);
+  },
+
+  _spawn(patternKey, params) {
+    const pat = PATTERNS[patternKey];
+    const slot = this.slots[patternKey];
+    const emitterDefaults = pat.emitterDefaults || {};
+    const windup = params.windup !== undefined ? params.windup : (emitterDefaults.windup || 0);
+
+    slot.activeEmitter = {
+      patternKey,
+      phase: windup > 0 ? 'windup' : 'firing',
+      elapsed: 0,
+      windupTimer: windup,
+      firedCount: 0,
+      patternState: pat.state(),
+      params: { ...params },
+    };
+
+    if (windup > 0) {
+      const geo = new THREE.RingGeometry(0.1, 0.3, 24);
+      const mat = new THREE.MeshBasicMaterial({color: 0xffaa00, side: THREE.DoubleSide, transparent: true, opacity: 0.8});
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI/2;
+      mesh.position.set(enemy.position.x, 0.1, enemy.position.z);
+      scene.add(mesh);
+      slot.windupMesh = mesh;
+    }
+  },
+
+  update(dt, ctx) {
+    for (const [key, slot] of Object.entries(this.slots)) {
+      if (!slot.activeEmitter) {
+        slot.cooldownTimer -= dt;
+        if (slot.cooldownTimer <= 0) {
+          const params = activePatterns[key] ? activePatterns[key].params : null;
+          if (params) this._spawn(key, params);
+        }
+        continue;
+      }
+
+      const em = slot.activeEmitter;
+      em.elapsed += dt;
+
+      if (em.phase === 'windup') {
+        em.windupTimer -= dt;
+        if (slot.windupMesh) {
+          const progress = 1 - (em.windupTimer / (em.params.windup || 1));
+          slot.windupMesh.scale.setScalar(1 + progress * 3);
+          slot.windupMesh.material.opacity = 0.8 - progress * 0.5;
+          slot.windupMesh.position.set(enemy.position.x, 0.1, enemy.position.z);
+        }
+        if (em.windupTimer <= 0) {
+          em.phase = 'firing';
+          if (slot.windupMesh) {
+            scene.remove(slot.windupMesh);
+            slot.windupMesh = null;
+          }
+        }
+        continue;
+      }
+
+      if (em.phase === 'firing') {
+        const pat = PATTERNS[key];
+        const patCtx = { ...ctx, params: em.params, patternState: em.patternState, emitter: em };
+        pat.update(patCtx, dt);
+
+        const burstCount = em.params.burstCount || 0;
+        if (burstCount > 0 && em.firedCount >= burstCount) {
+          em.phase = 'finished';
+          slot.activeEmitter = null;
+          const cooldown = em.params.cooldown !== undefined ? em.params.cooldown : 2.0;
+          slot.cooldownTimer = cooldown;
+        }
+      }
+    }
+  },
+
+  unregister(patternKey) {
+    const slot = this.slots[patternKey];
+    if (slot) {
+      if (slot.activeEmitter && slot.activeEmitter.patternState && slot.activeEmitter.patternState.waves) {
+        slot.activeEmitter.patternState.waves.forEach(w => {
+          scene.remove(w.mesh);
+          if (w.flash) scene.remove(w.flash);
+        });
+      }
+      if (slot.windupMesh) scene.remove(slot.windupMesh);
+      delete this.slots[patternKey];
+    }
+  },
+
+  reset() {
+    for (const [key, slot] of Object.entries(this.slots)) {
+      if (slot.activeEmitter && slot.activeEmitter.patternState && slot.activeEmitter.patternState.waves) {
+        slot.activeEmitter.patternState.waves.forEach(w => {
+          scene.remove(w.mesh);
+          if (w.flash) scene.remove(w.flash);
+        });
+      }
+      if (slot.windupMesh) scene.remove(slot.windupMesh);
+      const params = activePatterns[key] ? activePatterns[key].params : null;
+      if (params) {
+        slot.cooldownTimer = 0;
+        slot.activeEmitter = null;
+        this._spawn(key, params);
+      }
+    }
+  },
+};
+
+function spawnBullet(dir, color, emissive, speed, customUpdate) {
   speed = speed || 10;
   const geo = new THREE.SphereGeometry(0.3, 12, 12);
   const mat = new THREE.MeshPhongMaterial({color, emissive});
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.copy(enemy.position);
-  mesh.position.y = 1;
+  mesh.position.y = enemy.position.y;
   scene.add(mesh);
 
   const trailGeo = new THREE.BufferGeometry();
@@ -412,7 +619,9 @@ function spawnBullet(dir, color, emissive, speed) {
   const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color, transparent:true, opacity:0.5}));
   scene.add(trail);
 
-  bullets.push({mesh, trail, dir, speed, trailPts:[enemy.position.clone().setY(1)], age:0});
+  const entry = {mesh, trail, dir, speed, trailPts:[enemy.position.clone()], age:0};
+  if (customUpdate) entry.customUpdate = customUpdate;
+  bullets.push(entry);
 }
 
 function clearBullets() {
@@ -440,7 +649,6 @@ function onHit() {
   hitCount++;
   document.getElementById('hitCount').textContent = hitCount;
   playerFlashTimer = 0.3;
-  // screen flash
   const flash = document.getElementById('hit-flash');
   flash.style.opacity = '1';
   setTimeout(() => flash.style.opacity = '0', 100);
@@ -450,15 +658,7 @@ function reset() {
   clearBullets();
   hitParticles.forEach(p => scene.remove(p.mesh));
   hitParticles = [];
-  // Clean up shockwave meshes for all active patterns
-  Object.values(activePatterns).forEach(ap => {
-    if (ap.state && ap.state.waves) {
-      ap.state.waves.forEach(w => {
-        scene.remove(w.mesh);
-        if (w.flash) scene.remove(w.flash);
-      });
-    }
-  });
+  EmitterManager.reset();
   player.position.set(0, 1.1, 0);
   isJumping = false; jumpVelocity = 0;
   hitCount = 0;
@@ -466,10 +666,6 @@ function reset() {
   playerFlashTimer = 0;
   player.material.color.copy(playerOriginalColor);
   player.material.emissive.copy(playerOriginalEmissive);
-  // Reset all active pattern states
-  Object.entries(activePatterns).forEach(([key, ap]) => {
-    ap.state = PATTERNS[key].state();
-  });
 }
 
 /* ===== UI ===== */
@@ -490,18 +686,17 @@ function activatePattern(key) {
   const pat = PATTERNS[key];
   const params = {};
   pat.params.forEach(p => params[p.key] = p.default);
+  // Add emitter params with defaults
+  const emitterDefaults = pat.emitterDefaults || {};
+  EMITTER_PARAMS.forEach(ep => {
+    params[ep.key] = emitterDefaults[ep.key] !== undefined ? emitterDefaults[ep.key] : ep.default;
+  });
   activePatterns[key] = { params, state: pat.state() };
+  EmitterManager.register(key, params);
 }
 
 function deactivatePattern(key) {
-  const ap = activePatterns[key];
-  if (ap && ap.state && ap.state.waves) {
-    ap.state.waves.forEach(w => {
-      scene.remove(w.mesh);
-      if (w.flash) scene.remove(w.flash);
-    });
-  }
-  // Remove bullets spawned by this pattern (can't track, so leave them)
+  EmitterManager.unregister(key);
   delete activePatterns[key];
 }
 
@@ -519,19 +714,45 @@ function buildSliders() {
   const container = document.getElementById('sliders');
   container.innerHTML = '';
   const keys = Object.keys(activePatterns);
-  // Description
   document.getElementById('patternDesc').textContent = keys.map(k => PATTERNS[k].description).join(' / ') || '';
 
   keys.forEach(key => {
     const pat = PATTERNS[key];
     const ap = activePatterns[key];
-    // Section title
     const title = document.createElement('div');
     title.className = 'pattern-section-title';
     title.textContent = pat.name;
     if (keys.length > 1) container.appendChild(title);
 
+    // Pattern-specific sliders
     pat.params.forEach(p => {
+      const row = document.createElement('div');
+      row.className = 'param-row';
+      const valSpan = document.createElement('span');
+      valSpan.className = 'param-val';
+      valSpan.textContent = ap.params[p.key];
+      const label = document.createElement('label');
+      label.textContent = p.name + ' ';
+      label.appendChild(valSpan);
+      const input = document.createElement('input');
+      input.type = 'range'; input.min = p.min; input.max = p.max; input.step = p.step; input.value = ap.params[p.key];
+      input.addEventListener('input', () => {
+        ap.params[p.key] = parseFloat(input.value);
+        valSpan.textContent = input.value;
+      });
+      row.appendChild(label);
+      row.appendChild(input);
+      container.appendChild(row);
+    });
+
+    // Emitter params separator
+    const emLabel = document.createElement('div');
+    emLabel.className = 'emitter-label';
+    emLabel.textContent = '── エミッター ──';
+    container.appendChild(emLabel);
+
+    // Emitter sliders
+    EMITTER_PARAMS.forEach(p => {
       const row = document.createElement('div');
       row.className = 'param-row';
       const valSpan = document.createElement('span');
@@ -556,13 +777,11 @@ function buildSliders() {
 function updateLegend() {
   const legendDiv = document.getElementById('legend');
   const allLegends = Object.keys(activePatterns).flatMap(k => PATTERNS[k].legend);
-  // Deduplicate by label
   const seen = new Set();
   const unique = allLegends.filter(l => { if (seen.has(l.label)) return false; seen.add(l.label); return true; });
   legendDiv.innerHTML = unique.map(l => `<div style="color:${l.color}">${l.label}</div>`).join('');
 }
 
-// Player param sliders (built once)
 function buildPlayerSliders() {
   const container = document.getElementById('player-sliders');
   container.innerHTML = '';
@@ -571,12 +790,12 @@ function buildPlayerSliders() {
     row.className = 'param-row';
     const valSpan = document.createElement('span');
     valSpan.className = 'param-val';
-    valSpan.textContent = p.default;
+    valSpan.textContent = playerParams[p.key];
     const label = document.createElement('label');
     label.textContent = p.name + ' ';
     label.appendChild(valSpan);
     const input = document.createElement('input');
-    input.type = 'range'; input.min = p.min; input.max = p.max; input.step = p.step; input.value = p.default;
+    input.type = 'range'; input.min = p.min; input.max = p.max; input.step = p.step; input.value = playerParams[p.key];
     input.addEventListener('input', () => {
       playerParams[p.key] = parseFloat(input.value);
       valSpan.textContent = input.value;
@@ -587,10 +806,102 @@ function buildPlayerSliders() {
   });
 }
 
-activatePattern('alternating');
+// localStorage restore
+const LS_KEY = 'projectile-sim-defaults';
+let savedDefaults = null;
+try { savedDefaults = JSON.parse(localStorage.getItem(LS_KEY)); } catch(e) {}
+
+// Determine which patterns to activate
+if (savedDefaults && savedDefaults.activePatterns) {
+  checkboxContainer.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.checked = savedDefaults.activePatterns.includes(cb.value);
+  });
+  savedDefaults.activePatterns.forEach(key => { if (PATTERNS[key]) activatePattern(key); });
+} else {
+  activatePattern('alternating');
+}
+
+// Override pattern params from saved
+if (savedDefaults && savedDefaults.patterns) {
+  Object.entries(savedDefaults.patterns).forEach(([key, savedParams]) => {
+    if (activePatterns[key]) {
+      Object.entries(savedParams).forEach(([pk, pv]) => {
+        activePatterns[key].params[pk] = pv;
+      });
+      // Re-register emitter with updated params
+      if (EmitterManager.slots[key]) {
+        EmitterManager.unregister(key);
+        EmitterManager.register(key, activePatterns[key].params);
+      }
+    }
+  });
+}
+
+// Override player params from saved
+if (savedDefaults && savedDefaults.player) {
+  Object.entries(savedDefaults.player).forEach(([pk, pv]) => {
+    playerParams[pk] = pv;
+  });
+}
+
 buildSliders();
 updateLegend();
 buildPlayerSliders();
+
+// Enemy param sliders
+function buildEnemySliders() {
+  const container = document.getElementById('enemy-sliders');
+  container.innerHTML = '';
+  ENEMY_PARAMS.forEach(p => {
+    const saved = savedDefaults && savedDefaults.enemy && savedDefaults.enemy[p.key];
+    const initVal = saved !== undefined ? saved : p.default;
+    enemyParams[p.key] = initVal;
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const valSpan = document.createElement('span');
+    valSpan.className = 'param-val';
+    valSpan.textContent = initVal;
+    const label = document.createElement('label');
+    label.textContent = p.name + ' ';
+    label.appendChild(valSpan);
+    const input = document.createElement('input');
+    input.type = 'range'; input.min = p.min; input.max = p.max; input.step = p.step; input.value = initVal;
+    input.addEventListener('input', () => {
+      enemyParams[p.key] = parseFloat(input.value);
+      valSpan.textContent = input.value;
+    });
+    row.appendChild(label);
+    row.appendChild(input);
+    container.appendChild(row);
+  });
+}
+buildEnemySliders();
+
+enemy.position.set(enemyParams.posX, enemyParams.posY, enemyParams.posZ);
+enemyLabel.position.set(enemyParams.posX, enemyParams.posY + 2.25, enemyParams.posZ);
+
+// Save/Reset buttons
+document.getElementById('saveDefaults').addEventListener('click', () => {
+  const data = { patterns: {}, player: {}, activePatterns: [] };
+  Object.entries(activePatterns).forEach(([key, ap]) => {
+    data.patterns[key] = { ...ap.params };
+  });
+  Object.entries(playerParams).forEach(([k, v]) => data.player[k] = v);
+  data.enemy = { ...enemyParams };
+  checkboxContainer.querySelectorAll('input[type=checkbox]:checked').forEach(cb => {
+    data.activePatterns.push(cb.value);
+  });
+  localStorage.setItem(LS_KEY, JSON.stringify(data));
+  const btn = document.getElementById('saveDefaults');
+  btn.textContent = '✅ 保存完了';
+  btn.disabled = true;
+  setTimeout(() => { btn.textContent = '💾 デフォルトとして保存'; btn.disabled = false; }, 1000);
+});
+
+document.getElementById('resetDefaults').addEventListener('click', () => {
+  localStorage.removeItem(LS_KEY);
+  location.reload();
+});
 
 /* ===== INPUT ===== */
 const keys = {};
@@ -608,16 +919,13 @@ function setTpsMode(on) {
   document.getElementById('crosshair').style.display = on ? 'block' : 'none';
   showCamMode(on ? 'TPS MODE' : '俯瞰 MODE');
   if (on) {
-    // Face toward enemy
     const dx = enemy.position.x - player.position.x;
     const dz = enemy.position.z - player.position.z;
     tpsYaw = Math.atan2(dx, dz);
     tpsPitch = 0.3;
-    // Request pointer lock for mouse look
     renderer.domElement.requestPointerLock();
   } else {
     document.exitPointerLock();
-    // Reset orbit camera
     orbitCtrl.target.set(0, 0, 5);
     camera.position.set(0, 18, -22);
     orbitCtrl.update();
@@ -641,7 +949,6 @@ addEventListener('keydown', e => {
 });
 addEventListener('keyup', e => keys[e.code] = false);
 
-// Mouse look for TPS
 addEventListener('mousemove', e => {
   if (!tpsMode) return;
   if (document.pointerLockElement !== renderer.domElement) return;
@@ -650,20 +957,17 @@ addEventListener('mousemove', e => {
   tpsPitch = Math.max(-0.5, Math.min(1.2, tpsPitch));
 });
 
-// Re-lock pointer on click in TPS mode
 renderer.domElement.addEventListener('click', () => {
   if (tpsMode && document.pointerLockElement !== renderer.domElement) {
     renderer.domElement.requestPointerLock();
   }
 });
 
-// Right-click dash
 renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
 addEventListener('mousedown', e => {
-  if (e.button !== 2) return; // right click only
-  if (dashTimer > 0) return; // already dashing
+  if (e.button !== 2) return;
+  if (dashTimer > 0) return;
 
-  // Determine dash direction from input, or default forward
   const forward = tpsMode
     ? new THREE.Vector3(Math.sin(tpsYaw), 0, Math.cos(tpsYaw))
     : new THREE.Vector3(0, 0, 1);
@@ -677,7 +981,6 @@ addEventListener('mousedown', e => {
   if (keys['KeyA']) dashDir.add(right);
   if (keys['KeyD']) dashDir.addScaledVector(right, -1);
 
-  // Neutral = forward
   if (dashDir.lengthSq() < 0.01) dashDir.copy(forward);
   dashDir.normalize();
 
@@ -699,7 +1002,6 @@ function animate() {
   // player movement
   const pSpeed = playerParams.moveSpeed * dt;
   if (tpsMode) {
-    // Camera-relative movement
     const forward = new THREE.Vector3(Math.sin(tpsYaw), 0, Math.cos(tpsYaw));
     const right = new THREE.Vector3(Math.cos(tpsYaw), 0, -Math.sin(tpsYaw));
     if (keys['KeyW']) player.position.addScaledVector(forward, pSpeed);
@@ -728,7 +1030,6 @@ function animate() {
   if (dashTimer > 0) {
     dashTimer -= dt;
     player.position.addScaledVector(dashDir, playerParams.dashSpeed * dt);
-    // Ghost effect during dash
     player.material.opacity = 0.4;
     player.material.transparent = true;
     player.material.emissive.set(0x44ffff);
@@ -766,18 +1067,23 @@ function animate() {
     camera.lookAt(lookTarget);
   }
 
-  // pattern update (all active)
-  Object.entries(activePatterns).forEach(([key, ap]) => {
-    const pat = PATTERNS[key];
-    const ctx = { player, enemy, params: ap.params, patternState: ap.state, markers, spawnBullet, scene, onHit, spawnHitParticles, isInvincible };
-    pat.update(ctx, dt);
-  });
+  // enemy position update
+  enemy.position.set(enemyParams.posX, enemyParams.posY, enemyParams.posZ);
+  enemyLabel.position.set(enemyParams.posX, enemyParams.posY + 2.25, enemyParams.posZ);
+
+  // EmitterManager update (replaces direct pattern updates)
+  const emCtx = { player, enemy, markers, spawnBullet, scene, onHit, spawnHitParticles, isInvincible };
+  EmitterManager.update(dt, emCtx);
 
   // update bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.age += dt;
-    b.mesh.position.addScaledVector(b.dir, b.speed * dt);
+    if (b.customUpdate) {
+      b.customUpdate(b, dt, player);
+    } else {
+      b.mesh.position.addScaledVector(b.dir, b.speed * dt);
+    }
     b.mesh.scale.setScalar(1 + Math.sin(b.age * 15) * 0.15);
 
     b.trailPts.push(b.mesh.position.clone());
@@ -796,6 +1102,20 @@ function animate() {
     if (dist < HIT_RADIUS && !isInvincible) {
       spawnHitParticles(b.mesh.position.clone());
       onHit();
+      scene.remove(b.mesh); scene.remove(b.trail);
+      bullets.splice(i, 1);
+      continue;
+    }
+
+    // 着弾エフェクト（地面到達）
+    if (b.mesh.position.y <= 0.1) {
+      const impactGeo = new THREE.CircleGeometry(0.5, 12);
+      const impactMat = new THREE.MeshBasicMaterial({color: b.mesh.material.color.getHex(), transparent:true, opacity:0.6, side:THREE.DoubleSide});
+      const impact = new THREE.Mesh(impactGeo, impactMat);
+      impact.rotation.x = -Math.PI/2;
+      impact.position.set(b.mesh.position.x, 0.05, b.mesh.position.z);
+      scene.add(impact);
+      hitParticles.push({mesh:impact, vel:new THREE.Vector3(), life:0.3});
       scene.remove(b.mesh); scene.remove(b.trail);
       bullets.splice(i, 1);
       continue;
